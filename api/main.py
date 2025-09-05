@@ -4,7 +4,9 @@ from collections import defaultdict
 from contextlib import asynccontextmanager
 from typing import Union
 
+
 import websockets
+import aiohttp
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -48,13 +50,42 @@ latest_data = {
     "timestamp": 0,
 }
 
+# Discord Webhook URL (replace with your actual webhook URL)
+DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1413347949777391676/1ziqLi-TNXrgAEXNdoF_RrlZibpxcq7dzB6g5TEnONr007vv2Rr8hKxqpBOY9XQ4dXzm"
+
 
 # ----------------------------
 # WebSocket Listener
 # ----------------------------
 
+async def send_to_discord_webhook(data):
+    """Send the latest data to the Discord webhook as a JSON payload."""
+    if not DISCORD_WEBHOOK_URL or 'your_webhook_id' in DISCORD_WEBHOOK_URL:
+        # Webhook URL not set, skip sending
+        return
+    content = {
+        "content": None,
+        "embeds": [
+            {
+                "title": "Grow a Garden API Update",
+                "description": f"New data received. Timestamp: {data.get('timestamp', 0)}",
+                "fields": [
+                    {"name": k.capitalize(), "value": str(v)[:1000], "inline": False} for k, v in data.items() if k != "timestamp"
+                ],
+                "color": 5814783
+            }
+        ]
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(DISCORD_WEBHOOK_URL, json=content) as resp:
+                if resp.status != 204 and resp.status != 200:
+                    print(f"Failed to send to Discord webhook: {resp.status}")
+    except Exception as e:
+        print(f"Error sending to Discord webhook: {e}")
+
 async def websocket_listener():
-    """Connects to the live stock WebSocket and updates global data."""
+    """Connects to the live stock WebSocket and updates global data, then sends to Discord webhook."""
     uri = "wss://ws.growagardenpro.com/"
 
     while True:
@@ -72,6 +103,9 @@ async def websocket_listener():
                                 latest_data[category] = clean_items(latest_data[category])
                         if "eggs" in latest_data:
                             latest_data["eggs"] = combine_items_by_name(latest_data["eggs"])
+
+                        # Send to Discord webhook
+                        await send_to_discord_webhook(latest_data)
         except Exception as e:
             print(f"WebSocket error: {e}. Retrying in 5s...")
             await asyncio.sleep(5)
